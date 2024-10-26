@@ -1,0 +1,97 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_golang_dev_image:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ secrets.DOCKER_REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: containers/golang-dev
+        push: true
+        platforms: linux/amd64,linux/arm64
+        labels: |
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+        tags: |
+          ${{ secrets.DOCKER_REGISTRY }}/rshenry/golang-dev-zxy:${{ github.ref_name }}
+          ${{ secrets.DOCKER_REGISTRY }}/rshenry/golang-dev-zxy:latest
+
+  mirror_etcd:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ secrets.DOCKER_REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Pull and push etcd image for multiple architectures
+      run: |
+        # Set ETCD version
+        ETCD_VERSION=3.5.16-debian-12-r2
+
+        # Enable Docker CLI experimental features
+        export DOCKER_CLI_EXPERIMENTAL=enabled
+
+        # Pull and push for amd64
+        docker pull --platform linux/amd64 docker.io/bitnami/etcd:${ETCD_VERSION}
+        docker tag docker.io/bitnami/etcd:${ETCD_VERSION} ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-amd64
+        docker push ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-amd64
+
+        # Pull and push for arm64
+        docker pull --platform linux/arm64 docker.io/bitnami/etcd:${ETCD_VERSION}
+        docker tag docker.io/bitnami/etcd:${ETCD_VERSION} ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-arm64
+        docker push ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-arm64
+
+        # Create and push multi-arch manifest
+        docker manifest create ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION} \
+          ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-amd64 \
+          ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-arm64
+
+        docker manifest push ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}
+
+        # Clean up local images
+        docker rmi ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-amd64
+        docker rmi ${{ secrets.DOCKER_REGISTRY }}/rshenry/etcd:${ETCD_VERSION}-arm64
+
+  lint_helmfile:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: helmfile/helmfile-action@v1.9.1
+
+    - name: Run helmfile lint
+      run: |
+        make lint

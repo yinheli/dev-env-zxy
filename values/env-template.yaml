@@ -1,0 +1,19 @@
+services:
+  activity-rpc:
+    port: 8087
+    # cmd: |-
+    #   echo "Hello, World!"
+    volumes:
+      - name: local-path
+        hostPath: ../services/activity-rpc
+    volumeMounts:
+      - name: local-path
+        mountPath: /app/local-path
+    dependencies:
+      - etcd
+      - ai-api
+  ai-api:
+    port: 8888
+    ingress: true
+    dependencies:
+      - etcd

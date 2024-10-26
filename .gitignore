@@ -1,0 +1,37 @@
+# Docker
+Dockerfile
+.dockerignore
+*.dockerfile
+
+# TypeScript
+*.ts
+*.tsx
+*.js
+*.js.map
+node_modules/
+dist/
+build/
+
+# Bash
+*.sh
+*.bash
+
+# Temporary directory
+tmp/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,81 @@
+helmDefaults:
+  wait: true
+  atomic: true
+  timeout: 600
+
+environments:
+  default:
+    values:
+      - values/.env-default.yaml
+
+---
+
+releases:
+  - name: etcd
+    namespace: dev
+    chart: oci://registry-1.docker.io/bitnamicharts/etcd
+    version: 10.4.1
+    values:
+      - image:
+          registry: registry.cn-hangzhou.aliyuncs.com
+          repository: rshenry/etcd
+          tag: 3.5.16-debian-12-r2
+        auth:
+          rbac:
+            create: false
+        replicaCount: 1
+
+
+  {{- range $serviceName, $serviceConfig := .Environment.Values.services }}
+  - name: {{ $serviceName }}
+    namespace: dev
+    chart: ./charts/golang-dev
+    {{- if hasKey $serviceConfig "dependencies" }}
+    needs:
+      {{- range $dep := $serviceConfig.dependencies }}
+      - {{ $dep }}
+      {{- end }}
+    {{- end }}
+    values:
+      - service:
+          port: {{ $serviceConfig.port }}
+      {{- if hasKey $serviceConfig "cmd" }}
+        cmd: |-
+          {{- $serviceConfig.cmd | nindent 10 }}
+      {{- end }}
+      {{- if hasKey $serviceConfig "ingress" }}
+      - ingress:
+          enabled: true
+          hosts:
+            - host: {{ $serviceName }}.local
+              paths:
+                - path: /
+                  pathType: Prefix
+      {{- end }}
+      {{- if hasKey $serviceConfig "volumes" }}
+      - volumes:
+        {{- range $volume := $serviceConfig.volumes }}
+        - name: {{ $volume.name }}
+          {{- if hasKey $volume "hostPath" }}
+          hostPath: {{ $volume.hostPath }}
+          {{- else }}
+          {{- toYaml $volume | nindent 10 }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- if hasKey $serviceConfig "volumeMounts" }}
+      - volumeMounts:
+        {{- toYaml $serviceConfig.volumeMounts | nindent 8 }}
+      {{- end }}
+      {{- if hasKey $serviceConfig "dependencies" }}
+      - serviceDependencies:
+          {{- range $dep := $serviceConfig.dependencies }}
+          {{- if eq $dep "etcd" }}
+          etcd: etcd:2379
+          {{- else }}
+          {{- $depConfig := index $.Environment.Values.services $dep }}
+          {{ $dep }}: "{{ $dep }}:{{ $depConfig.port }}"
+          {{- end }}
+          {{- end }}
+      {{- end }}
+  {{- end }}
